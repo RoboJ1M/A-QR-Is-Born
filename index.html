@@ -39,15 +39,25 @@
       cursor: pointer;
       box-shadow: 0 4px 20px rgba(0,0,0,0.6);
     }
+    #status {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+      font-size: 12px;
+      color: #888;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <button id="btn">TAP TO RUN C64 DEMO</button>
   <canvas id="canvas" width="768" height="544" tabindex="0"></canvas>
+  <div id="status"></div>
 
   <script>
     const btn = document.getElementById('btn');
     const canvas = document.getElementById('canvas');
+    const status = document.getElementById('status');
     const b64 = window.location.hash.slice(1).trim();
 
     if (!b64) {
@@ -55,61 +65,46 @@
       btn.disabled = true;
     }
 
-    function sendKey(key, code, keyCode) {
-      const opts = { key, code, keyCode, which: keyCode, bubbles: true };
-      canvas.dispatchEvent(new KeyboardEvent('keydown', opts));
-      window.dispatchEvent(new KeyboardEvent('keydown', opts));
-      setTimeout(() => {
-        canvas.dispatchEvent(new KeyboardEvent('keyup', opts));
-        window.dispatchEvent(new KeyboardEvent('keyup', opts));
-      }, 60);
-    }
-
     btn.onclick = () => {
       btn.remove();
       canvas.focus();
+      status.textContent = 'Decoding Base64...';
 
-      // 1. Decode Base64 to raw .prg bytes
+      // 1. Decode URL-safe or standard Base64 into raw .prg bytes
       const cleanB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
       const bin = atob(cleanB64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-      // 2. Intercept XHR for 'demo.prg' so tiny8bit sees a clean .prg filename
-      const origOpen = XMLHttpRequest.prototype.open;
-      const origSend = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.open = function(method, url) {
-        this._isDemoPrg = typeof url === 'string' && url.endsWith('demo.prg');
-        return origOpen.apply(this, arguments);
-      };
-      XMLHttpRequest.prototype.send = function() {
-        if (this._isDemoPrg) {
-          Object.defineProperty(this, 'status', { value: 200 });
-          Object.defineProperty(this, 'readyState', { value: 4 });
-          Object.defineProperty(this, 'response', { value: bytes.buffer });
-          if (this.onload) this.onload();
-          if (this.onreadystatechange) this.onreadystatechange();
-          return;
+      // 2. Put ?file=demo.prg into window.location.search so tiny8bit sees it
+      history.replaceState(null, '', '?file=demo.prg' + window.location.hash);
+
+      // 3. Intercept fetch() so tiny8bit gets the in-memory .prg bytes
+      const origFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.includes('demo.prg')) {
+          status.textContent = 'Loaded demo.prg (' + bytes.length + ' bytes)';
+          setTimeout(() => status.remove(), 2500);
+          return Promise.resolve(new Response(bytes, {
+            status: 200,
+            headers: { 'Content-Type': 'application/octet-stream' }
+          }));
         }
-        return origSend.apply(this, arguments);
+        return origFetch(input, init);
       };
 
-      // 3. Boot tiny8bit WASM C64 core with a clean 'file=demo.prg' argument
+      // 4. Boot tiny8bit WASM C64 core from floooh.github.io
+      status.textContent = 'Booting C64 WASM...';
       window.Module = {
         canvas: canvas,
-        locateFile: (p) => 'https://github.io' + p,
-        arguments: ['file=demo.prg']
+        locateFile: (p) => 'https://github.io' + p
       };
 
       const script = document.createElement('script');
       script.src = 'https://github.ioc64.js';
+      script.onerror = () => { status.textContent = 'Failed to load c64.js'; };
       document.body.appendChild(script);
-
-      // 4. Auto-type RUN + Enter after boot (just in case tiny8bit only loads into RAM)
-      setTimeout(() => sendKey('r', 'KeyR', 82), 2600);
-      setTimeout(() => sendKey('u', 'KeyU', 85), 2750);
-      setTimeout(() => sendKey('n', 'KeyN', 78), 2900);
-      setTimeout(() => sendKey('Enter', 'Enter', 13), 3050);
     };
   </script>
 </body>
