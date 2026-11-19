@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C64 Base64 Runner</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: monospace;
+      display: grid;
+      place-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      width: 100%;
+      max-width: 768px;
+      image-rendering: pixelated;
+    }
+    #btn {
+      position: absolute;
+      padding: 18px 32px;
+      font: bold 18px monospace;
+      background: #6c5eb5;
+      color: #fff;
+      border: 3px solid #a599e9;
+      border-radius: 6px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    }
+  </style>
+</head>
+<body>
+  <button id="btn">TAP TO RUN C64 DEMO</button>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const btn = document.getElementById('btn');
+    const b64 = window.location.hash.slice(1).trim();
+
+    if (!b64) {
+      btn.textContent = 'NO #BASE64 PAYLOAD IN URL';
+      btn.disabled = true;
+    }
+
+    btn.onclick = () => {
+      btn.remove();
+
+      // Convert URL-safe or standard Base64 to raw .prg bytes
+      const cleanB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+      const bin = atob(cleanB64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+      // Configure tiny8bit WASM C64 emulator to mount and autostart the .prg
+      window.Module = {
+        canvas: document.getElementById('canvas'),
+        locateFile: (p) => 'https://github.io' + p,
+        arguments: ['file=c64/demo.prg'],
+        preRun: [() => {
+          FS.createPath('/', 'c64', true, true);
+          FS.writeFile('/c64/demo.prg', bytes);
+        }]
+      };
+
+      const script = document.createElement('script');
+      script.src = 'https://github.ioc64.js';
+      document.body.appendChild(script);
+    };
+  </script>
+</body>
+</html>
