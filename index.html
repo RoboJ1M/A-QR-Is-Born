@@ -75,22 +75,37 @@
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-      // 2. Append #.prg so tiny8bit detects the .prg file extension
-      const blob = new Blob([bytes], { type: 'application/octet-stream' });
-      const prgUrl = URL.createObjectURL(blob) + '#.prg';
+      // 2. Intercept XHR for 'demo.prg' so tiny8bit sees a clean .prg filename
+      const origOpen = XMLHttpRequest.prototype.open;
+      const origSend = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._isDemoPrg = typeof url === 'string' && url.endsWith('demo.prg');
+        return origOpen.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function() {
+        if (this._isDemoPrg) {
+          Object.defineProperty(this, 'status', { value: 200 });
+          Object.defineProperty(this, 'readyState', { value: 4 });
+          Object.defineProperty(this, 'response', { value: bytes.buffer });
+          if (this.onload) this.onload();
+          if (this.onreadystatechange) this.onreadystatechange();
+          return;
+        }
+        return origSend.apply(this, arguments);
+      };
 
-      // 3. Boot tiny8bit WASM C64 core
+      // 3. Boot tiny8bit WASM C64 core with a clean 'file=demo.prg' argument
       window.Module = {
         canvas: canvas,
-        locateFile: (p) => 'https://floooh.github.io/tiny8bit/' + p,
-        arguments: ['file=' + prgUrl]
+        locateFile: (p) => 'https://github.io' + p,
+        arguments: ['file=demo.prg']
       };
 
       const script = document.createElement('script');
-      script.src = 'https://github.io';
+      script.src = 'https://github.ioc64.js';
       document.body.appendChild(script);
 
-      // 4. Fallback: type RUN + Enter once C64 finishes booting (in case .prg only loads into RAM)
+      // 4. Auto-type RUN + Enter after boot (just in case tiny8bit only loads into RAM)
       setTimeout(() => sendKey('r', 'KeyR', 82), 2600);
       setTimeout(() => sendKey('u', 'KeyU', 85), 2750);
       setTimeout(() => sendKey('n', 'KeyN', 78), 2900);
