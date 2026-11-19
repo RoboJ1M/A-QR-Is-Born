@@ -55,21 +55,31 @@
       btn.disabled = true;
     }
 
+    function sendKey(key, code, keyCode) {
+      const opts = { key, code, keyCode, which: keyCode, bubbles: true };
+      canvas.dispatchEvent(new KeyboardEvent('keydown', opts));
+      window.dispatchEvent(new KeyboardEvent('keydown', opts));
+      setTimeout(() => {
+        canvas.dispatchEvent(new KeyboardEvent('keyup', opts));
+        window.dispatchEvent(new KeyboardEvent('keyup', opts));
+      }, 60);
+    }
+
     btn.onclick = () => {
       btn.remove();
       canvas.focus();
 
-      // 1. Decode URL-safe or standard Base64 into raw .prg bytes
+      // 1. Decode Base64 to raw .prg bytes
       const cleanB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
       const bin = atob(cleanB64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-      // 2. Create a local Blob URL so tiny8bit's XHR loader can fetch it directly
+      // 2. Append #.prg so tiny8bit detects the .prg file extension
       const blob = new Blob([bytes], { type: 'application/octet-stream' });
-      const prgUrl = URL.createObjectURL(blob);
+      const prgUrl = URL.createObjectURL(blob) + '#.prg';
 
-      // 3. Boot tiny8bit WASM C64 core with explicit canvas dimensions & file=blob:...
+      // 3. Boot tiny8bit WASM C64 core
       window.Module = {
         canvas: canvas,
         locateFile: (p) => 'https://floooh.github.io/tiny8bit/' + p,
@@ -77,8 +87,14 @@
       };
 
       const script = document.createElement('script');
-      script.src = 'https://floooh.github.io/tiny8bit/c64.js';
+      script.src = 'https://github.io';
       document.body.appendChild(script);
+
+      // 4. Fallback: type RUN + Enter once C64 finishes booting (in case .prg only loads into RAM)
+      setTimeout(() => sendKey('r', 'KeyR', 82), 2600);
+      setTimeout(() => sendKey('u', 'KeyU', 85), 2750);
+      setTimeout(() => sendKey('n', 'KeyN', 78), 2900);
+      setTimeout(() => sendKey('Enter', 'Enter', 13), 3050);
     };
   </script>
 </body>
