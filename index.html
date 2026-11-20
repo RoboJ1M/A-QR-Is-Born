@@ -96,13 +96,16 @@
 
       // 4. Boot tiny8bit WASM C64 core from floooh.github.io
       status.textContent = 'Booting C64 WASM...';
-      window.Module = {
-        canvas: canvas,
-        locateFile: (p) => 'https://github.io' + p
-      };
+const base = ['https:/', 'floooh.github.io', 'tiny8bit', ''].join('/');
 
-      const script = document.createElement('script');
-      script.src = 'https://github.ioc64.js';
+window.Module = {
+  canvas: canvas,
+  locateFile: (p) => base + p
+};
+
+const script = document.createElement('script');
+script.src = base + 'c64.js';
+
       script.onerror = () => { status.textContent = 'Failed to load c64.js'; };
       document.body.appendChild(script);
     };
