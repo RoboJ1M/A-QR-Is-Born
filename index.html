@@ -60,6 +60,10 @@
     const status = document.getElementById('status');
     const b64 = window.location.hash.slice(1).trim();
 
+    // Read ?sid=8580 or ?sid=6581 from the URL (defaults to 6581 if omitted)
+    const urlParams = new URLSearchParams(window.location.search);
+    const sidModel = urlParams.get('sid') || '6581';
+
     if (!b64) {
       btn.textContent = 'NO #BASE64 PAYLOAD IN URL';
       btn.disabled = true;
@@ -68,7 +72,6 @@
     btn.onclick = () => {
       btn.remove();
       canvas.focus();
-      status.textContent = 'Decoding Base64...';
 
       // 1. Decode URL-safe or standard Base64 into raw .prg bytes
       const cleanB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
@@ -76,15 +79,42 @@
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-      // 2. Put ?file=demo.prg into window.location.search so tiny8bit sees it
-      history.replaceState(null, '', '?file=demo.prg' + window.location.hash);
+      // 2. If ?sid=8580 is specified, shape WebAudio output to compensate for 6581's darker filter
+      if (sidModel === '8580') {
+        const OrigAudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (OrigAudioCtx) {
+          const origConnect = AudioNode.prototype.connect;
+          AudioNode.prototype.connect = function(dest) {
+            if (dest && dest.context && dest === dest.context.destination && !this._sid8580Shaped) {
+              this._sid8580Shaped = true;
+              const ctx = dest.context;
+              const shelf = ctx.createBiquadFilter();
+              shelf.type = 'highshelf';
+              shelf.frequency.value = 1400;
+              shelf.gain.value = 7.5;
+              const gain = ctx.createGain();
+              gain.gain.value = 1.35;
+              origConnect.call(this, shelf);
+              origConnect.call(shelf, gain);
+              return origConnect.call(gain, dest);
+            }
+            return origConnect.apply(this, arguments);
+          };
+        }
+      }
 
-      // 3. Intercept fetch() so tiny8bit gets the in-memory .prg bytes
+      // 3. Preserve ?sid=... alongside ?file=demo.prg in window.location.search
+      const nextParams = new URLSearchParams(window.location.search);
+      nextParams.set('file', 'demo.prg');
+      if (urlParams.has('sid')) nextParams.set('sid', sidModel);
+      history.replaceState(null, '', '?' + nextParams.toString() + window.location.hash);
+
+      // 4. Intercept fetch() so tiny8bit gets the in-memory .prg bytes
       const origFetch = window.fetch.bind(window);
       window.fetch = (input, init) => {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         if (url.includes('demo.prg')) {
-          status.textContent = 'Loaded demo.prg (' + bytes.length + ' bytes)';
+          status.textContent = `Loaded demo.prg (${bytes.length}B · SID ${sidModel})`;
           setTimeout(() => status.remove(), 2500);
           return Promise.resolve(new Response(bytes, {
             status: 200,
@@ -94,18 +124,15 @@
         return origFetch(input, init);
       };
 
-      // 4. Boot tiny8bit WASM C64 core from floooh.github.io
-      status.textContent = 'Booting C64 WASM...';
-const base = ['https:/', 'floooh.github.io', 'tiny8bit', ''].join('/');
+      // 5. Boot tiny8bit WASM C64 core (using join('/') to prevent URL mangling)
+      const base = ['https:/', 'floooh.github.io', 'tiny8bit', ''].join('/');
+      window.Module = {
+        canvas: canvas,
+        locateFile: (p) => base + p
+      };
 
-window.Module = {
-  canvas: canvas,
-  locateFile: (p) => base + p
-};
-
-const script = document.createElement('script');
-script.src = base + 'c64.js';
-
+      const script = document.createElement('script');
+      script.src = base + 'c64.js';
       script.onerror = () => { status.textContent = 'Failed to load c64.js'; };
       document.body.appendChild(script);
     };
